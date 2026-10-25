@@ -38,4 +38,6 @@ def as_utc(dt: datetime) -> datetime:
   return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
-  
+def minutes_between(start: datetime, end: datetime) -> int:
+    """Whole minutes, rounded down — the unit every quote, wait and turn is stored in."""
+    return int((as_utc(end) - as_utc(start)).total_seconds() // 60)  

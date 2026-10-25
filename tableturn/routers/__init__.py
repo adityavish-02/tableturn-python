@@ -7,7 +7,7 @@ from fastapi import Depends, Request
 from sqlalchemy.orm import Session
 
 from ..clock import Clock, get_clock
-
+from ..settings import Settings
 
 def get_session(request: Request) -> Iterator[Session]:
     """One session per request. Closing it rolls back whatever the request did not commit, so a failure half-way
@@ -17,4 +17,13 @@ def get_session(request: Request) -> Iterator[Session]:
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
+def get_settings(request: Request) -> Settings:
+  return request.app.state.settings
 ClockDep = Annotated[Clock, Depends(get_clock)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+
+
+
+
+
