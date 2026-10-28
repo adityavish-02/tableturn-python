@@ -26,7 +26,7 @@ class TableOut(BaseModel):
   section: Section
   state: TableState
   party_id: str | None = None          #seated and uncleared tables: whose table it is
-  seating_id: str | None = None        # seated and uncleared tables
+  seating_id: str | None = None        # seated and uncleared tables: what the floor's Leave / Clear act on
   seated_minutes: int | None = None    # seated tables only
 
 
@@ -77,5 +77,17 @@ class SeatOut(BaseModel):
     table: str
     seated_at: UtcZ
     waited_minutes: int
+
+
+class LeaveOut(BaseModel):
+    seating_id: str
+    left_at: UtcZ 
+
+
+class ClearOut(BaseModel):
+    seating_id: str
+    table: str
+    turn_minutes: int
+    cleared_at: UtcZ
 
     
