@@ -1,11 +1,13 @@
 """The application: settings read once, the schema created and seeded before the first request, routers mounted,
-one error handler, requests ids on every requests."""
+one error handler, request ids on every request and every log line on stdout."""
 import copy
 import json
+import logging
+import sys
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, Request 
+from fastapi import FastAPI, Request
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -26,6 +28,15 @@ TAGS = [
 ]
 
 DESCRIPTION = "A restaurant waitlist: parties quoted a wait, seated by size, tables turning over all evening."
+log = logging.getLogger("tableturn")
+
+
+def configure_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO, stream=sys.stdout,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s", force=True,
+    )
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 
 def honest_openapi(app: FastAPI):
@@ -33,7 +44,7 @@ def honest_openapi(app: FastAPI):
     FastAPI's stock 422 (HTTPValidationError, application/json) is removed where there is no body to fail — a query
     parameter that fails is the 400 validation problem the router documents — and replaced by the app's own
     problem+json where there is one; every operation gains the one 500 the handler gives."""
-    
+
     def openapi() -> dict:
         if app.openapi_schema:
             return app.openapi_schema
@@ -58,7 +69,8 @@ def honest_openapi(app: FastAPI):
     return openapi  
 
 
-def create_app(settings:Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None) -> FastAPI:
+    configure_logging()
     settings = settings or Settings()
     engine = make_engine(settings.database_url)
 
@@ -67,6 +79,11 @@ def create_app(settings:Settings | None = None) -> FastAPI:
         init_db(engine)
         with app.state.sessionmaker() as session:
             seed(session, settings.seed_dir)
+        log.info(
+            "ready host=%s port=%s database=%s default_quote_minutes=%s small_party_upgrade=%s",
+            settings.host, settings.port, settings.database_url, settings.default_quote_minutes,
+            settings.small_party_upgrade,
+        )
         yield
         engine.dispose()
 
@@ -79,6 +96,10 @@ def create_app(settings:Settings | None = None) -> FastAPI:
     async def request_id_and_log(request: Request, call_next):
         request.state.request_id = uuid.uuid4().hex[:12]
         response = await call_next(request)
+        log.info(
+            "request method=%s path=%s status=%s request_id=%s",
+            request.method, request.url.path, response.status_code, request.state.request_id,
+        )
         return response
 
     install_handlers(app)
@@ -90,10 +111,9 @@ def create_app(settings:Settings | None = None) -> FastAPI:
     @app.get("/", include_in_schema=False)
     def index():
         return FileResponse(STATIC / "index.html")
-    
+
     app.openapi = honest_openapi(app)
     return app
 
 
 app = create_app()
-
