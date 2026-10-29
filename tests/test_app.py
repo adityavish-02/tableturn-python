@@ -1,3 +1,4 @@
+
 """Modular routers, docs that list every error an endpoint can really answer, one handler for every error body."""
 import json
 import logging
@@ -5,7 +6,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+from sqlalchemy import event
+from sqlalchemy.exc import OperationalError
+
+import pytest
+from fastapi.testclient import TestClient
+
+from tableturn.app import create_app
+from tableturn.clock import get_clock
+from tests.conftest import make_settings
+
 from tableturn.handlers import PROBLEM
+from tableturn.routers import get_session
 
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "tableturn"
@@ -26,7 +38,8 @@ EXPECTED = {
                                                             "409": {"/errors/not-left-yet", "/errors/already-cleared"}}),
     ("/parties/{party_id}", "get"): ("parties", {"404": {"/errors/no-such-party"}}),
     ("/settings", "get"): ("settings", {}),
-}            
+    ("/healthz", "get"): ("settings", {}),
+}
 
 
 def problem_examples(entry: dict) -> list[dict]:
@@ -59,6 +72,7 @@ def test_every_refusal_is_documented_with_a_problem_example(client):
     assert waitlist["400"]["content"][PROBLEM]["example"]["type"] == "/errors/party-too-big"
     assert waitlist["422"]["content"][PROBLEM]["example"]["type"] == "/errors/validation"
 
+
 def test_no_operation_documents_an_answer_it_cannot_send(client):
     """Honest OpenAPI: each operation documents exactly its reachable problem answers plus the one 500; FastAPI's
     stock HTTPValidationError is gone; every problem example has type, title, status and detail."""
@@ -74,6 +88,7 @@ def test_no_operation_documents_an_answer_it_cannot_send(client):
                 assert {"type", "title", "status", "detail"} <= set(ex) and ex["status"] == int(status), ex
     assert "HTTPValidationError" not in json.dumps(spec)
     assert "ValidationError" not in spec["components"]["schemas"]
+
 
 def test_the_201_of_post_waitlist_documents_its_location_header(client):
     spec = client.get("/openapi.json").json()
@@ -107,6 +122,23 @@ def test_framework_errors_are_problem_json_too(client):
     assert r.status_code == 405 and r.headers["content-type"].startswith(PROBLEM)
     assert r.json()["type"] == "/errors/method-not-allowed" and r.json()["title"] == "Method not allowed"
     assert r.headers["allow"] == "GET", "the Allow header the framework sets is kept"
+
+
+def test_health_reads_the_database_and_a_failure_is_the_one_500(app, client):
+    statements = []
+    event.listen(app.state.engine, "before_cursor_execute", lambda *a: statements.append(a[2]))
+
+    assert client.get("/healthz").json() == {"status": "ok"}
+    assert "SELECT 1" in statements, "Health makes a round trip through the session"
+
+    class Unreachable:
+        def execute(self, *_):
+            raise OperationalError("SELECT 1", {}, Exception("unable to open database file"))
+
+    app.dependency_overrides[get_session] = lambda: Unreachable()
+
+    r = client.get("/healthz")
+    assert r.status_code == 500 and r.json()["type"] == "/errors/internal" and "unable to open" not in r.text
 
 
 def test_services_and_rules_load_without_fastapi():

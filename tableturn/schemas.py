@@ -111,4 +111,6 @@ class SettingsOut(BaseModel):
     small_party_upgrade: Upgrade
     max_covers: int
 
-    
+
+class HealthOut(BaseModel):
+    status: Literal["ok"]
